@@ -1,6 +1,6 @@
-# Go example projects
+# DeskClean 
 
-[![Go Reference](https://pkg.go.dev/badge/golang.org/x/example.svg)](https://pkg.go.dev/golang.org/x/example)
+[![Go Reference](https://pkg.go.dev/badge/golang.org/x/example.svg)](https://go.dev)
 
 DeskClean is a cross-platform application designed to keep your OS desktop clean and organized.  The application supports both cleaning intervals and one off execution.  DeskClean will store any files on your desktop in an organized folder structure based on date for reference in the future.
 
