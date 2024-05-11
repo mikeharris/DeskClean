@@ -22,28 +22,35 @@ func main() {
 	cleanFolder := "Desktop"
 	targetRoot := p.Join(userHomeDir, appFolder, targetFolder)
 	sourceRoot := p.Join(userHomeDir, cleanFolder)
-	sourceFs := os.DirFS(sourceRoot)
 	err = createTargetDirectory(userHomeDir, appFolder, targetFolder)
 	if err != nil {
 		log.Fatal("Unable to create target directory. ", err)
 	}
+	err = moveSourceFiles(sourceRoot, targetRoot)
+	if err != nil {
+		log.Fatal("Failed to move source files. ", err)
+	}
+}
 
+func moveSourceFiles(sourceRoot, targetRoot string) error {
+	sourceFs := os.DirFS(sourceRoot)
 	fs.WalkDir(sourceFs, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 		if d.Type().IsRegular() || d.Type().IsDir() {
 			if strings.HasPrefix(d.Name(), ".") {
-				fmt.Println("Skipping hidden file", path)
+				log.Println("Skipping hidden file", path)
 			} else {
 				err = os.Rename(p.Join(sourceRoot, path), p.Join(targetRoot, path))
 				if err != nil {
-					fmt.Println("Failed to move file - ", err)
+					log.Println("Failed to move file - ", err)
 				}
 			}
 		}
 		return nil
 	})
+	return nil
 }
 
 func createTargetDirectory(userHomeDir, appFolder, targetFolder string) error {
