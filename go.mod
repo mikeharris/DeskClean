@@ -4,6 +4,8 @@ go 1.22.3
 
 require fyne.io/fyne/v2 v2.4.5
 
+require github.com/adrg/xdg v0.4.0
+
 require (
 	fyne.io/systray v1.10.1-0.20231115130155-104f5ef7839e // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
