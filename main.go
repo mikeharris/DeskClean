@@ -12,7 +12,10 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 	"github.com/adrg/xdg"
 )
@@ -25,22 +28,34 @@ type AppConfig struct {
 	TargetFolderLabel      string
 	TargetFolderDateScheme string
 	TargetFolderSeperator  string
-	RunIntervalMinutes     int
+	RunInterval            string
 	FirstRun               bool
 }
 
 const appNamespace string = "com.github.mikeharris.DeskClean"
 
+var (
+	allowedRunIntervals = []string{"every 5 minutes", "every 15 minutes", "every 30 minutes", "every hour", "every 4 hours", "every 24 hours", "on demand"}
+	allowedDateFormats  = []string{"2006-01-02", "2006-Jan-02", "01-02-2006", "Jan-02-2006", "2006-01", "2006-Jan", "01-2006", "Jan-2006"}
+)
+
 func main() {
 	a := app.NewWithID(appNamespace)
-	conf := loadAppConfig(a)
+	prefs := a.Preferences()
+	conf := AppConfig{}
 	w := a.NewWindow(conf.AppName)
+	w2 := a.NewWindow("DeskClean Settings")
 
 	if desk, ok := a.(desktop.App); ok {
 		m := fyne.NewMenu(conf.AppName,
 			fyne.NewMenuItem("Run Now", func() {
-				runSweep(conf)
+				runSweep(getTargetPath(prefs), prefs.String("SourcePath"))
+			}),
+			fyne.NewMenuItem("Settings", func() {
+				w2.Show()
 			}))
+
+		desk.SetSystemTrayIcon(resourceDeskcleanicondarkSvg)
 		desk.SetSystemTrayMenu(m)
 	}
 
@@ -48,63 +63,74 @@ func main() {
 	w.SetCloseIntercept(func() {
 		w.Hide()
 	})
-	if conf.FirstRun {
-		saveAppConfig(a, conf)
+
+	w2.SetContent(makeSettingsUI(prefs))
+	// w2.Resize(fyne.NewSize(800, 600))
+	w2.SetCloseIntercept(func() {
+		w2.Hide()
+	})
+
+	if prefs.BoolWithFallback("FirstRun", true) {
+		initAppDefaults(a.Preferences())
 	}
+
 	a.Run()
 }
 
-func loadAppConfig(a fyne.App) AppConfig {
-	ac := AppConfig{}
-	ac.AppName = a.Preferences().StringWithFallback("AppName", "DeskClean")
-	ac.AppFolder = a.Preferences().StringWithFallback("AppFolder", "DeskClean")
-	ac.HomeDir = xdg.Home
-	ac.TargetFolderLabel = a.Preferences().StringWithFallback("TargetFolderLabel", "Archive")
-	ac.TargetFolderSeperator = a.Preferences().StringWithFallback("TargetFolderSeperator", "-")
-	ac.TargetFolderDateScheme = a.Preferences().StringWithFallback("TargetFolderDateScheme", "2006-01-02")
-	ac.RunIntervalMinutes = a.Preferences().IntWithFallback("RunIntervalMinutes", 60)
-	ac.SourcePath = a.Preferences().StringWithFallback("SourcePath", xdg.UserDirs.Desktop)
-	ac.FirstRun = a.Preferences().BoolWithFallback("FirstRun", true)
-	log.Println("Configuration loaded.")
-	return ac
+func makeSettingsUI(pref fyne.Preferences) fyne.CanvasObject {
+	ri := widget.NewSelect(allowedRunIntervals, func(value string) { pref.SetString("RunInterval", value) })
+	ri.SetSelected(pref.String("RunInterval"))
+
+	df := widget.NewSelect(allowedDateFormats, func(value string) { pref.SetString("TargetFolderDateScheme", value) })
+	df.SetSelected(pref.String("TargetFolderDateScheme"))
+
+	wc := container.NewPadded(container.NewPadded(container.New(layout.NewFormLayout(),
+		widget.NewLabel("App Folder:"), widget.NewEntryWithData(binding.BindPreferenceString("AppFolder", pref)),
+		widget.NewLabel("Sweep Folder Name:"), widget.NewEntryWithData(binding.BindPreferenceString("TargetFolderLabel", pref)),
+		widget.NewLabel("Sweep Folder Seperator:"), widget.NewEntryWithData(binding.BindPreferenceString("TargetFolderSeperator", pref)),
+		widget.NewLabel("Sweep Folder Date Format:"), df,
+		widget.NewLabel("Run Inteval:"), ri,
+		widget.NewLabel("Sweep Location:"), widget.NewLabelWithData(binding.BindPreferenceString("SourcePath", pref)),
+		widget.NewLabel("Archive Location:"), widget.NewLabelWithData(binding.BindPreferenceString("HomeDir", pref)))))
+
+	return wc
 }
 
-func saveAppConfig(a fyne.App, ac AppConfig) {
-	a.Preferences().SetString("AppName", ac.AppName)
-	a.Preferences().SetString("AppFolder", ac.AppFolder)
-	// a.Preferences().SetString("HomeDir", ac.HomeDir)
-	a.Preferences().SetString("TargetFolderLabel", ac.TargetFolderLabel)
-	a.Preferences().SetString("TargetFolderSeperator", ac.TargetFolderSeperator)
-	a.Preferences().SetString("TargetFolderDateScheme", ac.TargetFolderDateScheme)
-	a.Preferences().SetInt("RunIntervalMinutes", ac.RunIntervalMinutes)
-	a.Preferences().SetString("SourcePath", ac.SourcePath)
-	a.Preferences().SetBool("FirstRun", false)
-	log.Println("Configuration saved.")
+func initAppDefaults(pref fyne.Preferences) {
+	pref.SetString("AppName", "DeskClean")
+	pref.SetString("AppFolder", "DeskClean")
+	pref.SetString("HomeDir", xdg.Home)
+	pref.SetString("TargetFolderLabel", "Archive")
+	pref.SetString("TargetFolderSeperator", "-")
+	pref.SetString("TargetFolderDateScheme", "2006-01-02")
+	pref.SetString("RunInterval", "every hour")
+	pref.SetString("SourcePath", xdg.UserDirs.Desktop)
+	pref.SetBool("FirstRun", false)
+	log.Println("Configuration initialized.")
 }
 
-func getTargetPath(ac AppConfig) string {
+func getTargetPath(pref fyne.Preferences) string {
 	now := time.Now()
-	dateStr := now.Format(ac.TargetFolderDateScheme)
-	folderDateLabel := fmt.Sprintf("%s%s%s", dateStr, ac.TargetFolderSeperator, ac.TargetFolderLabel)
-	return p.Join(ac.HomeDir, ac.AppFolder, folderDateLabel)
+	dateStr := now.Format(pref.String("TargetFolderDateScheme"))
+	folderDateLabel := fmt.Sprintf("%s%s%s", dateStr, pref.String("TargetFolderSeperator"), pref.String("TargetFolderLabel"))
+	return p.Join(pref.String("HomeDir"), pref.String("AppFolder"), folderDateLabel)
 }
 
-func runSweep(ac AppConfig) {
-	targetPath := getTargetPath(ac)
+func runSweep(targetPath, sourcePath string) {
 	err := createTargetDirectory(targetPath)
 	if err != nil {
 		log.Fatal("Unable to create target directory. ", err)
 	}
-	err = moveFiles(ac.SourcePath, targetPath)
+	err = moveFiles(sourcePath, targetPath)
 	if err != nil {
 		log.Fatal("Failed to move source files. ", err)
 	}
 }
 
-func moveFiles(sourceRoot, targetRoot string) error {
+func moveFiles(sourcePath, targetPath string) error {
 	moveCount := 0
 	skippedCount := 0
-	sourceFs := os.DirFS(sourceRoot)
+	sourceFs := os.DirFS(sourcePath)
 	fs.WalkDir(sourceFs, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -114,7 +140,7 @@ func moveFiles(sourceRoot, targetRoot string) error {
 				// log.Println("Skipping hidden file", path)
 				skippedCount++
 			} else {
-				err = os.Rename(p.Join(sourceRoot, path), p.Join(targetRoot, path))
+				err = os.Rename(p.Join(sourcePath, path), p.Join(targetPath, path))
 				if err != nil {
 					log.Println("Failed to move file - ", err)
 				} else {
