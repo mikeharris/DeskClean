@@ -20,61 +20,100 @@ import (
 	"github.com/adrg/xdg"
 )
 
-type AppConfig struct {
-	AppName                string
-	HomeDir                string
-	AppFolder              string
-	SourcePath             string
-	TargetFolderLabel      string
-	TargetFolderDateScheme string
-	TargetFolderSeperator  string
-	RunInterval            string
-	FirstRun               bool
-}
-
 const appNamespace string = "com.github.mikeharris.DeskClean"
 
 var (
-	allowedRunIntervals = []string{"every 5 minutes", "every 15 minutes", "every 30 minutes", "every hour", "every 4 hours", "every 24 hours", "on demand"}
+	allowedRunIntervals = []string{"every minute", "every 5 minutes", "every 15 minutes", "every 30 minutes", "every hour", "every 4 hours", "every 24 hours", "on demand"}
 	allowedDateFormats  = []string{"2006-01-02", "2006-Jan-02", "01-02-2006", "Jan-02-2006", "2006-01", "2006-Jan", "01-2006", "Jan-2006"}
 )
 
 func main() {
+	doneChan := make(chan bool)
+	resetChan := make(chan int)
+
 	a := app.NewWithID(appNamespace)
 	prefs := a.Preferences()
-	conf := AppConfig{}
-	w := a.NewWindow(conf.AppName)
-	w2 := a.NewWindow("DeskClean Settings")
+
+	if prefs.BoolWithFallback("FirstRun", true) {
+		initAppDefaults(a.Preferences())
+	}
+
+	runInterval := prefs.Int("RunIntervalMinutes")
+
+	w := a.NewWindow(prefs.String("AppName") + " Settings")
 
 	if desk, ok := a.(desktop.App); ok {
-		m := fyne.NewMenu(conf.AppName,
+		m := fyne.NewMenu(prefs.String("AppName"),
 			fyne.NewMenuItem("Run Now", func() {
 				runSweep(getTargetPath(prefs), prefs.String("SourcePath"))
 			}),
 			fyne.NewMenuItem("Settings", func() {
-				w2.Show()
+				w.Show()
 			}))
 
 		desk.SetSystemTrayIcon(resourceDeskcleanicondarkSvg)
 		desk.SetSystemTrayMenu(m)
 	}
 
-	w.SetContent(widget.NewLabel("Fyne System Tray"))
+	w.SetContent(makeSettingsUI(prefs))
 	w.SetCloseIntercept(func() {
+		switch prefs.String("RunInterval") {
+		case "every minute":
+			prefs.SetInt("RunIntervalMinutes", 1)
+		case "every 5 minutes":
+			prefs.SetInt("RunIntervalMinutes", 5)
+		case "every 15 minutes":
+			prefs.SetInt("RunIntervalMinutes", 15)
+		case "every 30 minutes":
+			prefs.SetInt("RunIntervalMinutes", 30)
+		case "every 60 minutes":
+			prefs.SetInt("RunIntervalMinutes", 60)
+		case "every 4 hours":
+			prefs.SetInt("RunIntervalMinutes", 240)
+		case "every 12 hours":
+			prefs.SetInt("RunIntervalMinutes", 720)
+		case "every 24 hours":
+			prefs.SetInt("RunIntervalMinutes", 1440)
+		default:
+			prefs.SetInt("RunIntervalMinutes", -1)
+		}
+
+		if runInterval != prefs.Int("RunIntervalMinutes") {
+			// Run inteval changed so inform the sweeper job
+			resetChan <- prefs.Int("RunIntervalMinutes")
+		}
+
+		runInterval = prefs.Int("RunIntervalMinutes")
 		w.Hide()
 	})
 
-	w2.SetContent(makeSettingsUI(prefs))
-	// w2.Resize(fyne.NewSize(800, 600))
-	w2.SetCloseIntercept(func() {
-		w2.Hide()
-	})
-
-	if prefs.BoolWithFallback("FirstRun", true) {
-		initAppDefaults(a.Preferences())
+	sweepTicker := time.NewTicker(60 * time.Minute)
+	if prefs.Int("RunIntervalMinutes") > -1 {
+		sweepTicker.Reset(time.Duration(prefs.Int("RunIntervalMinutes")) * time.Minute)
 	}
 
+	go func() {
+		for {
+			select {
+			case <-doneChan:
+				return
+			case i := <-resetChan:
+				if i > -1 {
+					sweepTicker.Reset(time.Duration(i) * time.Minute)
+					log.Printf("Reset timer to %d minutes.\n", prefs.Int("RunIntervalMinutes"))
+				} else {
+					log.Println("Sweeper set to run on demand.")
+				}
+			case <-sweepTicker.C:
+				if prefs.Int("RunIntervalMinutes") > 0 {
+					runSweep(getTargetPath(prefs), prefs.String("SourcePath"))
+				}
+			}
+		}
+	}()
+
 	a.Run()
+	doneChan <- true
 }
 
 func makeSettingsUI(pref fyne.Preferences) fyne.CanvasObject {
@@ -104,6 +143,7 @@ func initAppDefaults(pref fyne.Preferences) {
 	pref.SetString("TargetFolderSeperator", "-")
 	pref.SetString("TargetFolderDateScheme", "2006-01-02")
 	pref.SetString("RunInterval", "every hour")
+	pref.SetInt("RunIntervalMinutes", 60)
 	pref.SetString("SourcePath", xdg.UserDirs.Desktop)
 	pref.SetBool("FirstRun", false)
 	log.Println("Configuration initialized.")
@@ -137,7 +177,6 @@ func moveFiles(sourcePath, targetPath string) error {
 		}
 		if d.Type().IsRegular() || d.Type().IsDir() {
 			if strings.HasPrefix(d.Name(), ".") {
-				// log.Println("Skipping hidden file", path)
 				skippedCount++
 			} else {
 				err = os.Rename(p.Join(sourcePath, path), p.Join(targetPath, path))
