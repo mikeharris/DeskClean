@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	p "path"
+	"runtime"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 	"github.com/adrg/xdg"
+	"github.com/jannson/go-autostart"
 )
 
 const appNamespace string = "com.github.mikeharris.DeskClean"
@@ -38,7 +40,23 @@ func main() {
 		initAppDefaults(a.Preferences())
 	}
 
-	runInterval := prefs.Int("RunIntervalMinutes")
+	var e string
+	if runtime.GOOS == "darwin" {
+		e = p.Join("/Applications", prefs.String("AppName")) + ".app"
+	} else {
+		var err error
+		e, err = os.Executable()
+		if err != nil {
+			log.Fatal("Unable to determine executable. ", err)
+		}
+	}
+
+	startApp := &autostart.App{
+		Name:        appNamespace,
+		DisplayName: prefs.String("AppName"),
+		Exec:        []string{e},
+	}
+	autoLaunch := prefs.Bool("AutoLaunchApp")
 
 	w := a.NewWindow(prefs.String("AppName") + " Settings")
 
@@ -57,33 +75,22 @@ func main() {
 
 	w.SetContent(makeSettingsUI(prefs))
 	w.SetCloseIntercept(func() {
-		switch prefs.String("RunInterval") {
-		case "every minute":
-			prefs.SetInt("RunIntervalMinutes", 1)
-		case "every 5 minutes":
-			prefs.SetInt("RunIntervalMinutes", 5)
-		case "every 15 minutes":
-			prefs.SetInt("RunIntervalMinutes", 15)
-		case "every 30 minutes":
-			prefs.SetInt("RunIntervalMinutes", 30)
-		case "every 60 minutes":
-			prefs.SetInt("RunIntervalMinutes", 60)
-		case "every 4 hours":
-			prefs.SetInt("RunIntervalMinutes", 240)
-		case "every 12 hours":
-			prefs.SetInt("RunIntervalMinutes", 720)
-		case "every 24 hours":
-			prefs.SetInt("RunIntervalMinutes", 1440)
-		default:
-			prefs.SetInt("RunIntervalMinutes", -1)
+		prefs.SetInt("RunIntervalMinutes", runIntervalToInt(prefs.String("RunInterval")))
+		// Determine if AutoLaunchApp is dirty
+		if autoLaunch != prefs.Bool("AutoLaunchApp") {
+			// autoLaunch and the pref aren't the same so inverse it to make it the same
+			autoLaunch = !autoLaunch
+			if startApp.IsEnabled() && !autoLaunch {
+				if err := startApp.Disable(); err != nil {
+					log.Fatal(err)
+				}
+			} else if !startApp.IsEnabled() && autoLaunch {
+				log.Println("Creating LaunchAgent plist.")
+				if err := startApp.Enable(); err != nil {
+					log.Fatal(err)
+				}
+			}
 		}
-
-		if runInterval != prefs.Int("RunIntervalMinutes") {
-			// Run inteval changed so inform the sweeper job
-			resetChan <- prefs.Int("RunIntervalMinutes")
-		}
-
-		runInterval = prefs.Int("RunIntervalMinutes")
 		w.Hide()
 	})
 
@@ -91,6 +98,13 @@ func main() {
 	if prefs.Int("RunIntervalMinutes") > -1 {
 		sweepTicker.Reset(time.Duration(prefs.Int("RunIntervalMinutes")) * time.Minute)
 	}
+
+	runInterval := binding.BindPreferenceInt("RunIntervalMinutes", prefs)
+	callback := binding.NewDataListener(func() {
+		ri, _ := runInterval.Get()
+		resetChan <- ri
+	})
+	runInterval.AddListener(callback)
 
 	go func() {
 		for {
@@ -117,21 +131,27 @@ func main() {
 }
 
 func makeSettingsUI(pref fyne.Preferences) fyne.CanvasObject {
+	al := widget.NewLabel(pref.String("HomeDir"))
 	ri := widget.NewSelect(allowedRunIntervals, func(value string) { pref.SetString("RunInterval", value) })
 	ri.SetSelected(pref.String("RunInterval"))
 
 	df := widget.NewSelect(allowedDateFormats, func(value string) { pref.SetString("TargetFolderDateScheme", value) })
 	df.SetSelected(pref.String("TargetFolderDateScheme"))
 
+	af := widget.NewEntryWithData(binding.BindPreferenceString("AppFolder", pref))
+	af.OnChanged = func(s string) {
+		al.SetText(p.Join(p.Join(pref.String("HomeDir"), s)))
+	}
+
 	wc := container.NewPadded(container.NewPadded(container.New(layout.NewFormLayout(),
-		widget.NewLabel("App Folder:"), widget.NewEntryWithData(binding.BindPreferenceString("AppFolder", pref)),
+		widget.NewLabel("App Folder:"), af,
 		widget.NewLabel("Sweep Folder Name:"), widget.NewEntryWithData(binding.BindPreferenceString("TargetFolderLabel", pref)),
 		widget.NewLabel("Sweep Folder Seperator:"), widget.NewEntryWithData(binding.BindPreferenceString("TargetFolderSeperator", pref)),
 		widget.NewLabel("Sweep Folder Date Format:"), df,
 		widget.NewLabel("Run Inteval:"), ri,
+		widget.NewLabel("Launch app at login:"), widget.NewCheckWithData("Enabled", binding.BindPreferenceBool("AutoLaunchApp", pref)),
 		widget.NewLabel("Sweep Location:"), widget.NewLabelWithData(binding.BindPreferenceString("SourcePath", pref)),
-		widget.NewLabel("Archive Location:"), widget.NewLabelWithData(binding.BindPreferenceString("HomeDir", pref)))))
-
+		widget.NewLabel("Archive Location:"), al)))
 	return wc
 }
 
@@ -146,6 +166,7 @@ func initAppDefaults(pref fyne.Preferences) {
 	pref.SetInt("RunIntervalMinutes", 60)
 	pref.SetString("SourcePath", xdg.UserDirs.Desktop)
 	pref.SetBool("FirstRun", false)
+	pref.SetBool("AutoLaunchApp", false)
 	log.Println("Configuration initialized.")
 }
 
@@ -209,4 +230,27 @@ func createTargetDirectory(targetPath string) error {
 		}
 	}
 	return nil
+}
+
+func runIntervalToInt(text string) int {
+	switch text {
+	case "every minute":
+		return 1
+	case "every 5 minutes":
+		return 5
+	case "every 15 minutes":
+		return 15
+	case "every 30 minutes":
+		return 30
+	case "every 60 minutes":
+		return 60
+	case "every 4 hours":
+		return 240
+	case "every 12 hours":
+		return 720
+	case "every 24 hours":
+		return 1440
+	default:
+		return -1
+	}
 }
