@@ -42,7 +42,7 @@ func main() {
 
 	var e string
 	if runtime.GOOS == "darwin" {
-		e = p.Join("/Applications", prefs.String("AppName")) + ".app"
+		e = p.Join(xdg.ApplicationDirs[0], prefs.String("AppName")) + ".app"
 	} else {
 		var err error
 		e, err = os.Executable()
