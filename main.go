@@ -22,11 +22,16 @@ import (
 	"github.com/jannson/go-autostart"
 )
 
-const appNamespace string = "com.github.mikeharris.DeskClean"
+const (
+	appNamespace string = "com.github.mikeharris.DeskClean"
+	macAppExt    string = ".app"
+)
 
 var (
 	allowedRunIntervals = []string{"every minute", "every 5 minutes", "every 15 minutes", "every 30 minutes", "every hour", "every 4 hours", "every 24 hours", "on demand"}
 	allowedDateFormats  = []string{"2006-01-02", "2006-Jan-02", "01-02-2006", "Jan-02-2006", "2006-01", "2006-Jan", "01-2006", "Jan-2006"}
+	version             string
+	build               string
 )
 
 func main() {
@@ -42,7 +47,7 @@ func main() {
 
 	var e string
 	if runtime.GOOS == "darwin" {
-		e = p.Join(xdg.ApplicationDirs[0], prefs.String("AppName")) + ".app"
+		e = p.Join(xdg.ApplicationDirs[0], prefs.String("AppName")) + macAppExt
 	} else {
 		var err error
 		e, err = os.Executable()
@@ -63,7 +68,7 @@ func main() {
 	if desk, ok := a.(desktop.App); ok {
 		m := fyne.NewMenu(prefs.String("AppName"),
 			fyne.NewMenuItem("Run Now", func() {
-				runSweep(getTargetPath(prefs), prefs.String("SourcePath"))
+				runSweep(prefs.String("SourcePath"), getTargetPath(prefs))
 			}),
 			fyne.NewMenuItem("Settings", func() {
 				w.Show()
@@ -120,7 +125,7 @@ func main() {
 				}
 			case <-sweepTicker.C:
 				if prefs.Int("RunIntervalMinutes") > 0 {
-					runSweep(getTargetPath(prefs), prefs.String("SourcePath"))
+					runSweep(prefs.String("SourcePath"), getTargetPath(prefs))
 				}
 			}
 		}
@@ -177,14 +182,10 @@ func getTargetPath(pref fyne.Preferences) string {
 	return p.Join(pref.String("HomeDir"), pref.String("AppFolder"), folderDateLabel)
 }
 
-func runSweep(targetPath, sourcePath string) {
-	err := createTargetDirectory(targetPath)
+func runSweep(sourcePath, targetPath string) {
+	err := moveFiles(sourcePath, targetPath)
 	if err != nil {
-		log.Fatal("Unable to create target directory. ", err)
-	}
-	err = moveFiles(sourcePath, targetPath)
-	if err != nil {
-		log.Fatal("Failed to move source files. ", err)
+		log.Println("Failed to move source files. ", err)
 	}
 }
 
@@ -192,6 +193,7 @@ func moveFiles(sourcePath, targetPath string) error {
 	moveCount := 0
 	skippedCount := 0
 	sourceFs := os.DirFS(sourcePath)
+
 	fs.WalkDir(sourceFs, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -200,6 +202,14 @@ func moveFiles(sourcePath, targetPath string) error {
 			if strings.HasPrefix(d.Name(), ".") {
 				skippedCount++
 			} else {
+				// Determine if parent path needs created and only create if there is a file/folder to write
+				err = createTargetDirectory(targetPath)
+				if err != nil {
+					log.Println("Unable to create target directory. ", err)
+					// If we cannot create the containing folder then fail fast
+					return err
+				}
+
 				err = os.Rename(p.Join(sourcePath, path), p.Join(targetPath, path))
 				if err != nil {
 					log.Println("Failed to move file - ", err)

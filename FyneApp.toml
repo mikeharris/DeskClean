@@ -1,0 +1,8 @@
+Website = "https://github.com/mikeharris/DeskClean"
+
+[Details]
+  Icon = "images/deskclean_icon.png"
+  Name = "DeskClean"
+  ID = "com.github.mikeharris.DeskClean"
+  Version = "1.0.0"
+  Build = 4
