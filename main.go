@@ -68,7 +68,10 @@ func main() {
 	if desk, ok := a.(desktop.App); ok {
 		m := fyne.NewMenu(prefs.String("AppName"),
 			fyne.NewMenuItem("Run Now", func() {
-				runSweep(prefs.String("SourcePath"), getTargetPath(prefs))
+				err := moveFiles(prefs.String("SourcePath"), getTargetPath(prefs))
+				if err != nil {
+					log.Println("Failed to move source files. ", err)
+				}
 			}),
 			fyne.NewMenuItem("Settings", func() {
 				w.Show()
@@ -125,7 +128,10 @@ func main() {
 				}
 			case <-sweepTicker.C:
 				if prefs.Int("RunIntervalMinutes") > 0 {
-					runSweep(prefs.String("SourcePath"), getTargetPath(prefs))
+					err := moveFiles(prefs.String("SourcePath"), getTargetPath(prefs))
+					if err != nil {
+						log.Println("Failed to move source files. ", err)
+					}
 				}
 			}
 		}
@@ -180,13 +186,6 @@ func getTargetPath(pref fyne.Preferences) string {
 	dateStr := now.Format(pref.String("TargetFolderDateScheme"))
 	folderDateLabel := fmt.Sprintf("%s%s%s", dateStr, pref.String("TargetFolderSeperator"), pref.String("TargetFolderLabel"))
 	return p.Join(pref.String("HomeDir"), pref.String("AppFolder"), folderDateLabel)
-}
-
-func runSweep(sourcePath, targetPath string) {
-	err := moveFiles(sourcePath, targetPath)
-	if err != nil {
-		log.Println("Failed to move source files. ", err)
-	}
 }
 
 func moveFiles(sourcePath, targetPath string) error {
