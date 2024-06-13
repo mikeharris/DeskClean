@@ -23,8 +23,9 @@ import (
 )
 
 const (
-	appNamespace string = "com.github.mikeharris.DeskClean"
-	macAppExt    string = ".app"
+	appNamespace   string = "com.github.mikeharris.DeskClean"
+	macAppExt      string = ".app"
+	sweepMenuLabel string = "Swept at %s"
 )
 
 var (
@@ -32,6 +33,8 @@ var (
 	allowedDateFormats  = []string{"2006-01-02", "2006-Jan-02", "01-02-2006", "Jan-02-2006", "2006-01", "2006-Jan", "01-2006", "Jan-2006"}
 	version             string
 	build               string
+	buildDate           string
+	commit              string
 )
 
 func main() {
@@ -40,6 +43,8 @@ func main() {
 
 	a := app.NewWithID(appNamespace)
 	prefs := a.Preferences()
+	var menu *fyne.Menu
+	lastSweepMenu := fyne.NewMenuItem(fmt.Sprintf(sweepMenuLabel, prefs.String("LastSweep")), func() {})
 
 	if prefs.BoolWithFallback("FirstRun", true) {
 		initAppDefaults(a.Preferences())
@@ -66,19 +71,24 @@ func main() {
 	w := a.NewWindow(prefs.String("AppName") + " Settings")
 
 	if desk, ok := a.(desktop.App); ok {
-		m := fyne.NewMenu(prefs.String("AppName"),
+		menu = fyne.NewMenu(prefs.String("AppName"),
 			fyne.NewMenuItem("Run Now", func() {
 				err := moveFiles(prefs.String("SourcePath"), getTargetPath(prefs))
 				if err != nil {
 					log.Println("Failed to move source files. ", err)
 				}
+				prefs.SetString("LastSweep", time.Now().Format(time.Kitchen))
+				lastSweepMenu.Label = fmt.Sprintf(sweepMenuLabel, prefs.String("LastSweep"))
+				menu.Refresh()
 			}),
 			fyne.NewMenuItem("Settings", func() {
 				w.Show()
-			}))
+			}),
+			fyne.NewMenuItemSeparator(),
+			lastSweepMenu)
 
 		desk.SetSystemTrayIcon(resourceDeskcleanicondarkSvg)
-		desk.SetSystemTrayMenu(m)
+		desk.SetSystemTrayMenu(menu)
 	}
 
 	w.SetContent(makeSettingsUI(prefs))
@@ -132,6 +142,9 @@ func main() {
 					if err != nil {
 						log.Println("Failed to move source files. ", err)
 					}
+					prefs.SetString("LastSweep", time.Now().Format(time.Kitchen))
+					lastSweepMenu.Label = fmt.Sprintf(sweepMenuLabel, prefs.String("LastSweep"))
+					menu.Refresh()
 				}
 			}
 		}

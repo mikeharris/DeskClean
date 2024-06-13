@@ -1,10 +1,11 @@
 # Change these variables as necessary.
 MAIN_PACKAGE_PATH := .
+BUILD_DIR := /tmp/bin/
 BINARY_NAME := DeskClean 
 BUILD_DATE := $(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
 BUILD := $(shell date +%s)
 GIT_COMMIT := $(shell git rev-parse --short HEAD)
-VERSION := $(shell git describe --tags --abbrev=0 | tr -d '\n')
+VERSION := $(shell git describe --tags --always --abbrev=0 | tr -d '\n')
 
 # ==================================================================================== #
 # HELPERS
@@ -69,13 +70,12 @@ test/cover:
 ## build: build the application
 .PHONY: build
 build:
-	# Include additional build steps, like TypeScript, SCSS or Tailwind compilation here...
-	go build -o=/tmp/bin/${BINARY_NAME} ${MAIN_PACKAGE_PATH}
+	go build -o=${BUILD_DIR}${BINARY_NAME} -ldflags "-X main.version=$(VERSION) -X main.build=$(BUILD) -X main.buildDate=$(BUILD_DATE) -X main.commit=$(GIT_COMMIT)" ${MAIN_PACKAGE_PATH}
 
 ## run: run the  application
 .PHONY: run
 run: build
-	/tmp/bin/${BINARY_NAME}
+	${BUILD_DIR}${BINARY_NAME}
 
 ## package/mac: package the fyne app for Mac
 .PHONY: package/mac
@@ -83,6 +83,18 @@ package/mac:
 	rm -Rf DeskClean.app
 	fyne package -os darwin
 
+.PHONY: package/win
+package/win:
+	#rm DeskClean.exe
+	fyne package -os windows
+
+.PHONY: package/linux
+package/linux:
+	fyne package -os linux
+
+.PHONY: package/mac/install
+package/install:
+	fyne install
 
 # ==================================================================================== #
 # OPERATIONS
