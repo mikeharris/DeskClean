@@ -23,9 +23,11 @@ import (
 )
 
 const (
-	appNamespace   string = "com.github.mikeharris.DeskClean"
-	macAppExt      string = ".app"
-	sweepMenuLabel string = "Swept at %s"
+	appNamespace      string = "com.github.mikeharris.DeskClean"
+	macAppExt         string = ".app"
+	sweptMenuLabel    string = "Swept at %s"
+	sweepMenuLabel    string = "Sweep now"
+	settingsMenuLabel string = "Settings"
 )
 
 var (
@@ -44,7 +46,7 @@ func main() {
 	a := app.NewWithID(appNamespace)
 	prefs := a.Preferences()
 	var menu *fyne.Menu
-	lastSweepMenu := fyne.NewMenuItem(fmt.Sprintf(sweepMenuLabel, prefs.String("LastSweep")), func() {})
+	lastSweepMenu := fyne.NewMenuItem(fmt.Sprintf(sweptMenuLabel, prefs.String("LastSweep")), func() {})
 
 	if prefs.BoolWithFallback("FirstRun", true) {
 		initAppDefaults(a.Preferences())
@@ -72,16 +74,16 @@ func main() {
 
 	if desk, ok := a.(desktop.App); ok {
 		menu = fyne.NewMenu(prefs.String("AppName"),
-			fyne.NewMenuItem("Run Now", func() {
-				err := moveFiles(prefs.String("SourcePath"), getTargetPath(prefs))
+			fyne.NewMenuItem(sweepMenuLabel, func() {
+				err := sweepFiles(prefs.String("SourcePath"), getTargetPath(prefs))
 				if err != nil {
 					log.Println("Failed to move source files. ", err)
 				}
 				prefs.SetString("LastSweep", time.Now().Format(time.Kitchen))
-				lastSweepMenu.Label = fmt.Sprintf(sweepMenuLabel, prefs.String("LastSweep"))
+				lastSweepMenu.Label = fmt.Sprintf(sweptMenuLabel, prefs.String("LastSweep"))
 				menu.Refresh()
 			}),
-			fyne.NewMenuItem("Settings", func() {
+			fyne.NewMenuItem(settingsMenuLabel, func() {
 				w.Show()
 			}),
 			fyne.NewMenuItemSeparator(),
@@ -138,12 +140,12 @@ func main() {
 				}
 			case <-sweepTicker.C:
 				if prefs.Int("RunIntervalMinutes") > 0 {
-					err := moveFiles(prefs.String("SourcePath"), getTargetPath(prefs))
+					err := sweepFiles(prefs.String("SourcePath"), getTargetPath(prefs))
 					if err != nil {
 						log.Println("Failed to move source files. ", err)
 					}
 					prefs.SetString("LastSweep", time.Now().Format(time.Kitchen))
-					lastSweepMenu.Label = fmt.Sprintf(sweepMenuLabel, prefs.String("LastSweep"))
+					lastSweepMenu.Label = fmt.Sprintf(sweptMenuLabel, prefs.String("LastSweep"))
 					menu.Refresh()
 				}
 			}
@@ -201,7 +203,7 @@ func getTargetPath(pref fyne.Preferences) string {
 	return p.Join(pref.String("HomeDir"), pref.String("AppFolder"), folderDateLabel)
 }
 
-func moveFiles(sourcePath, targetPath string) error {
+func sweepFiles(sourcePath, targetPath string) error {
 	moveCount := 0
 	skippedCount := 0
 	sourceFs := os.DirFS(sourcePath)
