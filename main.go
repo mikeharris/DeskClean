@@ -207,6 +207,7 @@ func sweepFiles(sourcePath, targetPath string) error {
 	moveCount := 0
 	skippedCount := 0
 	sourceFs := os.DirFS(sourcePath)
+	targeExists := false
 
 	fs.WalkDir(sourceFs, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -216,12 +217,15 @@ func sweepFiles(sourcePath, targetPath string) error {
 			if strings.HasPrefix(d.Name(), ".") {
 				skippedCount++
 			} else {
-				// Determine if parent path needs created and only create if there is a file/folder to write
-				err = createTargetDirectory(targetPath)
-				if err != nil {
-					log.Println("Unable to create target directory. ", err)
-					// If we cannot create the containing folder then fail fast
-					return err
+				if !targeExists {
+					// Determine if parent path needs created and only create if there is a file/folder to write
+					err = createTargetDirectory(targetPath)
+					if err != nil {
+						log.Println("Unable to create target directory. ", err)
+						// If we cannot create the containing folder then fail fast
+						return err
+					}
+					targeExists = true
 				}
 
 				err = os.Rename(p.Join(sourcePath, path), p.Join(targetPath, path))
