@@ -92,9 +92,14 @@ package/win:
 package/linux:
 	fyne package -os linux
 
-.PHONY: package/mac/install
-package/install:
+.PHONY: local/install
+local/install:
 	fyne install
+
+## bundle: bundle resources into embedded go file
+.PHONY: bundle
+bundle:
+	fyne bundle -o bundled.go --append images/deskclean_icon_dark.svg 
 
 # ==================================================================================== #
 # OPERATIONS
