@@ -92,9 +92,10 @@ package/win:
 package/linux:
 	fyne package -os linux
 
+## local/install: install app on this machine
 .PHONY: local/install
 local/install:
-	fyne install
+	sudo fyne install
 
 ## bundle: bundle resources into embedded go file
 .PHONY: bundle
